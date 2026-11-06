@@ -189,12 +189,13 @@ footer a{margin-right:14px}
   <details><summary>Wie gehe ich mit Heizkosten um?</summary><p>Wenn ein Messdienst (z.&nbsp;B. für Heizkostenverteiler oder Wärmezähler) die Heizkosten nach der Heizkostenverordnung aufgeteilt hat, tragen Sie die Gesamtkosten und die Einzelbeträge pro Mieter mit dem Schlüssel „direkt zugeordnet“ ein. Die CO₂-Kostenaufteilung übernehmen Sie ebenfalls aus dieser Abrechnung.</p></details>
   <details><summary>Was passiert bei Leerstand?</summary><p>Bei Wohnfläche und Einheiten bleibt der Anteil der leerstehenden Tage automatisch beim Vermieter. Die Übersicht zeigt diesen Anteil separat.</p></details>
   <details><summary>Darf ich Kabel-TV noch umlegen?</summary><p>Seit dem 01.07.2024 sind die Kosten eines Kabel-TV-Sammelvertrags grundsätzlich nicht mehr als Betriebskosten umlagefähig. Für 2025 gehören sie in der Regel nicht in die Abrechnung.</p></details>
-  <details><summary>Wie funktioniert die Freischaltung?</summary><p>Nach der Zahlung über Stripe werden Sie auf diese Seite zurückgeleitet und die Freischaltung wird in Ihrem Browser gespeichert. Sie erhalten außerdem einen Freischaltcode, mit dem Sie andere Browser freischalten können. Bei Problemen genügt eine kurze E-Mail.</p></details>
+  <details><summary>Wie funktioniert die Freischaltung?</summary><p>Nach der Zahlung über Stripe werden Sie auf diese Seite zurückgeleitet und die Freischaltung wird in Ihrem Browser gespeichert. Sie erhalten außerdem einen Freischaltcode, mit dem Sie andere Browser freischalten können. Bei Problemen genügt eine kurze E-Mail an <a href="mailto:meisner@nexgen-consulting.de">meisner@nexgen-consulting.de</a>.</p></details>
 </section>
 </main>
 
 <footer><div class="wrap">
-  <a href="impressum.html">Impressum</a><a href="datenschutz.html">Datenschutz</a><a href="agb.html">AGB &amp; Widerruf</a>
+  <p>Ratgeber: <a href="ratgeber/frist-nebenkostenabrechnung-2025.html">Frist für die Abrechnung 2025</a><a href="ratgeber/nebenkostenabrechnung-mieterwechsel.html">Abrechnung bei Mieterwechsel</a></p>
+  <a href="impressum.html">Impressum</a><a href="datenschutz.html">Datenschutz</a><a href="agb.html">AGB &amp; Widerruf</a><a href="mailto:meisner@nexgen-consulting.de">Kontakt</a>
   <p>Abrechnungsklar ist ein Rechenwerkzeug und ersetzt keine Rechtsberatung.</p>
 </div></footer>
 
@@ -206,7 +207,7 @@ footer a{margin-right:14px}
 const CONFIG = {
   price: "14,90 €",
   priceNote: "Endpreis, einmalig, kein Abo.",
-  paymentLink: "", // Stripe Payment Link, z. B. https://buy.stripe.com/...
+  paymentLink: "https://buy.stripe.com/3cIeVd56Sab05eU7DV0VO00",
   licHash: "d1ef6bc6e653d2ce293823f0888464de5d6fff5a66240f1b3e6126cd1e99bef2"
 };
 const STORE = "ak_state_v1", LIC = "ak_lic_v1";
@@ -410,8 +411,9 @@ function renderResults() {
 function renderLic() {
   document.body.classList.toggle("unlicensed", !licensed);
   $("#priceAmt").textContent = CONFIG.price; $("#priceNote").textContent = CONFIG.priceNote;
-  const buy = CONFIG.paymentLink ? `<a class="btn" href="${CONFIG.paymentLink}" rel="noopener">Jetzt freischalten – ${CONFIG.price}</a>
-    <p class="hint" style="margin-top:8px">Sichere Zahlung über Stripe (Karte, Apple Pay, Google Pay, Klarna u. a.). Mit dem Kauf stimmen Sie den <a href="agb.html">AGB</a> zu und verlangen die sofortige Bereitstellung; damit erlischt Ihr Widerrufsrecht.</p>`
+  const buy = CONFIG.paymentLink ? `<label style="display:flex;gap:8px;align-items:flex-start;font-weight:400;color:var(--ink);font-size:14px;margin-bottom:12px"><input type="checkbox" id="consent" style="width:auto;margin:4px 0 0"><span>Ich akzeptiere die <a href="agb.html">AGB</a> und verlange ausdrücklich, dass die Freischaltung sofort nach der Zahlung bereitgestellt wird. Mir ist bekannt, dass ich dadurch mein Widerrufsrecht verliere.</span></label>
+    <a class="btn" id="buyBtn" href="${CONFIG.paymentLink}" rel="noopener" style="opacity:.5">Zahlungspflichtig freischalten – ${CONFIG.price}</a>
+    <p class="hint" style="margin-top:8px">Sichere Zahlung über Stripe. Nach der Zahlung kommen Sie automatisch hierher zurück und der Browser ist freigeschaltet.</p>`
     : `<p class="hint">Die Freischaltung ist in Kürze verfügbar.</p>`;
   $("#buyArea").innerHTML = licensed ? `<div class="ok">Dieser Browser ist freigeschaltet. Vielen Dank!</div>` : buy;
   $("#licbox").innerHTML = licensed ? `<div class="ok">Freigeschaltet: Druck ohne Wasserzeichen.${sessionCode ? ` Ihr Freischaltcode für andere Browser: <b>${esc(sessionCode)}</b> (bitte notieren)` : ""}</div>`
@@ -474,6 +476,12 @@ document.addEventListener("click", async e => {
     if (!(await tryCode($("#codeIn").value))) alert("Dieser Code ist ungültig.");
   }
 });
+
+document.addEventListener("click", e => {
+  const a = e.target.closest("#buyBtn"); if (!a) return;
+  if (!$("#consent")?.checked) { e.preventDefault(); alert("Bitte bestätigen Sie zuerst die AGB und die sofortige Bereitstellung."); $("#consent")?.focus(); }
+});
+document.addEventListener("change", e => { if (e.target.id === "consent") $("#buyBtn").style.opacity = e.target.checked ? "1" : ".5"; });
 
 // Frist-Countdown
 (() => { const left = Math.ceil((Date.UTC(2026, 11, 31) - Date.now()) / 864e5); if (left > 0) $("#deadline").textContent = `Noch ${left} Tage bis zur Frist für die Abrechnung 2025 (31.12.2026)`; })();

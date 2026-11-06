@@ -230,7 +230,9 @@ const N = (n, d = 2) => new Intl.NumberFormat("de-DE", {maximumFractionDigits:d}
 const D = iso => { if (!iso) return ""; const [y,m,d] = iso.split("-"); return `${d}.${m}.${y}`; };
 const t0 = iso => { const [y,m,d] = iso.split("-").map(Number); return Date.UTC(y, m - 1, d); };
 const days = (a, b) => Math.round((t0(b) - t0(a)) / 864e5) + 1;
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const r2 = x => Math.round((x + Math.sign(x) * Number.EPSILON) * 100) / 100;
+const salut = n => String(n || "").replace(/^Herrn\b/, "Herr");
 
 function blank() {
   return {obj:{street:"",city:""}, ll:{name:"",street:"",city:"",iban:"",contact:""},
@@ -275,9 +277,12 @@ function calc() {
   });
   tens.forEach(t => { if (!t.d) warnings.push(`${t.name || "Ein Mieter"}: Mietzeit liegt außerhalb des Abrechnungszeitraums und wird übersprungen.`); if (!unitById[t.unit]) warnings.push(`${t.name || "Ein Mieter"}: keine Wohnung zugeordnet.`); });
   const act = tens.filter(t => t.d > 0);
-  const personDays = act.reduce((s, t) => s + t.persons * t.d, 0);
-  // Überschneidungen je Wohnung prüfen
-  S.units.forEach(u => { const used = act.filter(t => t.unit === u.id).reduce((s, t) => s + t.d, 0); if (used > P) warnings.push(`${u.name}: Mietzeiten überschneiden sich (${used} von ${P} Tagen belegt).`); });
+  // Überschneidungen je Wohnung prüfen; leerstehende Tage zählen beim Personenschlüssel mit 1 fiktiven Person (Anteil trägt der Vermieter)
+  let vacancyPersonDays = 0;
+  S.units.forEach(u => { const used = act.filter(t => t.unit === u.id).reduce((s, t) => s + t.d, 0); if (used > P) warnings.push(`${u.name}: Mietzeiten überschneiden sich (${used} von ${P} Tagen belegt).`); vacancyPersonDays += Math.max(0, P - used); });
+  const personDays = act.reduce((s, t) => s + t.persons * t.d, 0) + vacancyPersonDays;
+  const usesPersons = S.costs.some(c => c.key === "personen");
+  if (usesPersons) act.forEach(t => { if (!t.persons) warnings.push(`${t.name || "Ein Mieter"}: Personenzahl ist 0, beim Personenschlüssel zahlt dieser Mieter nichts.`); });
   const costRows = [];
   S.costs.forEach(c => {
     const amount = num(c.amount), label = c.type || "Kostenposition";
@@ -288,6 +293,12 @@ function calc() {
     if (c.key === "flaeche" && !totalArea) warnings.push(`„${label}“: Wohnflächen fehlen.`);
     if (c.key === "personen" && !personDays) warnings.push(`„${label}“: Personenzahlen fehlen.`);
     if (c.key === "verbrauch" && !consTotal) warnings.push(`„${label}“: Verbrauchswerte fehlen.`);
+    if (c.key === "verbrauch") {
+      const sumReadings = act.reduce((s, t) => s + num(vals[t.id]), 0);
+      if (num(c.total) && num(c.total) + 1e-9 < sumReadings) warnings.push(`„${label}“: Der Gesamtverbrauch ist kleiner als die Summe der Einzelverbräuche.`);
+      act.forEach(t => { if (String(vals[t.id] ?? "").trim() === "") warnings.push(`„${label}“: Verbrauchswert für ${t.name || "einen Mieter"} fehlt.`); });
+    }
+    if (c.key === "direkt") act.forEach(t => { if (String(vals[t.id] ?? "").trim() === "") warnings.push(`„${label}“: Einzelbetrag für ${t.name || "einen Mieter"} fehlt.`); });
     act.forEach(t => {
       let share = 0, totTxt = "", yourTxt = "";
       const tage = t.d === P ? "" : ` · ${t.d}/${P} Tage`;
@@ -298,14 +309,16 @@ function calc() {
         case "verbrauch": share = consTotal ? num(vals[t.id]) / consTotal : 0; totTxt = `${N(consTotal, 3)} ${esc(c.unit || "")}`; yourTxt = `${N(num(vals[t.id]), 3)} ${esc(c.unit || "")}`; break;
         case "direkt": totTxt = "lt. Einzelabrechnung"; yourTxt = "Einzelbetrag"; break;
       }
-      const val = c.key === "direkt" ? num(vals[t.id]) : amount * share;
-      distributed += val;
-      const p35 = val * num(c.p35) / 100;
+      // Jede Zeile wird auf Cent gerundet und genau so summiert, damit die Abrechnung nachrechenbar ist
+      // Berechnete Anteile werden auf den Cent abgerundet: kein Mieter zahlt mehr als seinen exakten Anteil, die Summe übersteigt nie die Gesamtkosten
+      const val = c.key === "direkt" ? r2(num(vals[t.id])) : Math.floor(amount * share * 100 + 1e-7) / 100;
+      distributed = r2(distributed + val);
+      const p35 = r2(val * num(c.p35) / 100);
       t.rows.push({label, amount, key: KEYS[c.key], totTxt, yourTxt, val, p35});
-      t.sum += val; t.p35 += p35;
+      t.sum = r2(t.sum + val); t.p35 = r2(t.p35 + p35);
     });
     if (c.key === "direkt" && distributed > amount + 0.005) warnings.push(`„${label}“: Einzelbeträge (${E(distributed)}) übersteigen die Gesamtkosten (${E(amount)}).`);
-    costRows.push({label, amount, key: KEYS[c.key], distributed, landlord: amount - distributed});
+    costRows.push({label, amount, key: KEYS[c.key], distributed, landlord: r2(amount - distributed)});
   });
   return {P, act, costRows, warnings, totalArea, personDays};
 }
@@ -371,7 +384,7 @@ function statement(t, R) {
   const expl = {
     "Wohnfläche": `Wohnfläche: Kosten × (Ihre Wohnfläche ÷ Gesamtwohnfläche ${N(R.totalArea)} m²) × (Ihre Nutzungstage ÷ ${R.P} Tage). Der Anteil leerstehender Flächen verbleibt beim Vermieter.`,
     "Wohneinheiten": `Wohneinheiten: Kosten ÷ Anzahl Wohneinheiten × (Ihre Nutzungstage ÷ ${R.P} Tage).`,
-    "Personen": `Personen: Kosten × (Ihre Personen × Ihre Nutzungstage) ÷ Summe aller Personentage im Haus.`,
+    "Personen": `Personen: Kosten × (Ihre Personen × Ihre Nutzungstage) ÷ Summe aller Personentage im Haus (${N(R.personDays, 0)}). Leerstehende Tage werden mit einer Person angesetzt; dieser Anteil verbleibt beim Vermieter.`,
     "Verbrauch (Zähler)": `Verbrauch: Kosten × (Ihr abgelesener Verbrauch ÷ Gesamtverbrauch).`,
     "direkt zugeordnet": `Direkt zugeordnet: Ihr Einzelbetrag laut gesonderter Einzelabrechnung (z. B. Heizkostenabrechnung des Messdienstes, die beigefügt ist).`
   };
@@ -381,7 +394,7 @@ function statement(t, R) {
     <div class="small" style="text-align:right">${esc(S.ll.name)}<br>${esc(S.ll.street)}<br>${esc(S.ll.city)}<br>${esc(S.ll.contact)}<br><br>${esc((S.ll.city || "").replace(/^\d+\s*/, ""))}${S.ll.city ? ", " : ""}${D(S.date)}</div></div>
     <h3>Betriebskostenabrechnung ${D(S.period.from)} – ${D(S.period.to)}</h3>
     <p class="small">Mietobjekt: ${esc(S.obj.street)}, ${esc(S.obj.city)}, ${esc(t.unitName)} · Ihr Nutzungszeitraum: ${D(t.a)} – ${D(t.b)} (${t.d} von ${R.P} Tagen)</p>
-    <p>Guten Tag ${esc(t.name)},<br>nachfolgend erhalten Sie die Abrechnung der Betriebskosten für den oben genannten Zeitraum.</p>
+    <p>Guten Tag ${esc(salut(t.name))},<br>nachfolgend erhalten Sie die Abrechnung der Betriebskosten für den oben genannten Zeitraum.</p>
     <table><thead><tr><th>Kostenart</th><th class="n">Gesamtkosten</th><th>Verteilerschlüssel</th><th>Gesamt</th><th>Ihr Anteil</th><th class="n">Ihr Betrag</th></tr></thead>
     <tbody>${rows}</tbody><tfoot>
     <tr><td colspan="5">Summe Ihrer Betriebskosten</td><td class="n">${E(t.sum)}</td></tr>
@@ -442,7 +455,7 @@ document.addEventListener("change", e => {
   const el = e.target;
   if (el.id === "adjust") { S.adjust = el.checked; save(); renderResults(); return; }
   if (el.id === "importFile" && el.files[0]) {
-    el.files[0].text().then(txt => { try { const d = JSON.parse(txt); if (!d.units || !d.ten || !d.costs) throw 0; S = d; save(); renderAll(); } catch { alert("Die Datei konnte nicht gelesen werden."); } });
+    el.files[0].text().then(txt => { try { const d = JSON.parse(txt); if (!Array.isArray(d.units) || !Array.isArray(d.ten) || !Array.isArray(d.costs) || !d.period?.from || !d.period?.to) throw 0; d.obj = d.obj || {}; d.ll = d.ll || {}; S = d; save(); renderAll(); } catch { alert("Die Datei konnte nicht gelesen werden."); } });
     el.value = ""; return;
   }
   const l = el.dataset.list; if (!l) return;

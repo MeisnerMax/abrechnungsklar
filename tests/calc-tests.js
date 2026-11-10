@@ -1,4 +1,4 @@
-// Korrektheitstests für Abrechnungsklar. Läuft im Browser auf der Seite (nutzt S, calc, statement, demo).
+// Korrektheitstests für Umlagepilot. Läuft im Browser auf der Seite (nutzt S, calc, statement, demo).
 // Vergleicht calc() mit einer unabhängig geschriebenen Referenzrechnung und prüft Invarianten und Briefinhalt.
 (() => {
   const out = []; let fail = 0, pass = 0;
